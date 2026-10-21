@@ -2,12 +2,12 @@ import {read,write,tables,canonical,destination,text,type State,type Row} from '
 import {workspace,migrationIdentity,migrationConflict,reserveMigration,activateMigration,type User} from './local-accounts';
 import {exportData,importData,resource} from './backup';
 import {backupDigest} from './backup-safety';
-const FORMAT='link-atlas-account-migration',ITERATIONS=600000,MAX=32*1024*1024;
+const FORMAT='link-atlas-account-migration',ITERATIONS=600000;
 const aad=new TextEncoder().encode('LinkAtlasMigration:v1:PBKDF2-SHA256:AES-256-GCM');
 const statuses=['queued','running','paused','canceled','success','partial','failed'];
 function secret(value:unknown):string{if(typeof value!=='string'||value.length<8||value.length>128)throw Error('请输入 8–128 位原账号密码');return value;}
 function base64(bytes:Uint8Array){const chunks=[];for(let i=0;i<bytes.length;i+=32768)chunks.push(String.fromCharCode(...bytes.subarray(i,i+32768)));return btoa(chunks.join(''));}
-function bytes(value:unknown,max:number){if(typeof value!=='string'||value.length>max||!value.length||value.length%4||!/^[A-Za-z0-9+/]*={0,2}$/.test(value))throw Error('迁移包编码无效');const raw=atob(value),result=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)result[i]=raw.charCodeAt(i);return result;}
+function bytes(value:unknown,max?:number){if(typeof value!=='string'||max!==undefined&&value.length>max||!value.length||value.length%4||!/^[A-Za-z0-9+/]*={0,2}$/.test(value))throw Error('迁移包编码无效');const raw=atob(value),result=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)result[i]=raw.charCodeAt(i);return result;}
 async function key(password:string,salt:Uint8Array){const material=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',hash:'SHA-256',salt:salt as BufferSource,iterations:ITERATIONS},material,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);}
 function empty():State{return {resources:[],tasks:[],libraries:[],categories:[],rules:[],shortcuts:[],meta:[],trash:[]};}
 function validId(value:unknown){if(!Number.isSafeInteger(value)||Number(value)<1)throw Error('迁移包记录 ID 无效');}
@@ -19,9 +19,8 @@ async function validate(payload:any){
  text(user.workspace_name,40);if(typeof user.avatar!=='string'||user.avatar.length>2800000||user.avatar&&!/^data:image\/(png|jpeg|webp);base64,/.test(user.avatar))throw Error('迁移包头像格式无效');
  if(user.avatar){const img=new Image();img.src=user.avatar;await img.decode();if(img.width*img.height>4000000)throw Error('迁移包头像过大');}
  const state=payload.state as State;
- if(!state||tables.some(table=>!Array.isArray(state[table])||state[table].length>250000))throw Error('迁移包资料列表格式无效');
+ if(!state||tables.some(table=>!Array.isArray(state[table])))throw Error('迁移包资料列表格式无效');
  for(const table of tables){const ids=new Set();for(const row of state[table]){if(!row||typeof row!=='object'||Array.isArray(row))throw Error('迁移包记录格式无效');validId(row.id);if(ids.has(row.id))throw Error('迁移包含重复 ID');ids.add(row.id);}}
- if(state.resources.filter(r=>!r.deleted).length>100000)throw Error('迁移包超过 100000 条链接');
  const meta=state.meta[0];if(state.meta.length!==1||meta.id!==1||!Number.isInteger(meta.page_limit_mib)||meta.page_limit_mib<1||meta.page_limit_mib>10)throw Error('迁移包设置无效');
  for(const field of ['data_revision','backup_revision','trash_sequence'])if(meta[field]!==undefined&&(!Number.isSafeInteger(meta[field])||meta[field]<0))throw Error('迁移包备份版本无效');
  if(meta.service_url!==undefined&&typeof meta.service_url!=='string')throw Error('迁移包抓取地址无效');
@@ -36,8 +35,8 @@ async function validate(payload:any){
 }
 async function unlock(archive:any,password:unknown){
  const pass=secret(password);if(!archive||archive.format!==FORMAT||archive.version!==1||archive.kdf!=='PBKDF2-SHA256'||archive.iterations!==ITERATIONS||archive.cipher!=='AES-256-GCM')throw Error('请选择账号与资料迁移包；普通 JSON 请登录后在导入/导出中恢复');
- const salt=bytes(archive.salt,64),iv=bytes(archive.iv,32),ciphertext=bytes(archive.ciphertext,Math.ceil((MAX+16)/3)*4);
- if(salt.length!==24||iv.length!==12||ciphertext.length>MAX+16)throw Error('迁移包大小或加密参数无效');
+ const salt=bytes(archive.salt,64),iv=bytes(archive.iv,32),ciphertext=bytes(archive.ciphertext);
+ if(salt.length!==24||iv.length!==12)throw Error('迁移包加密参数无效');
  let raw:ArrayBuffer;try{raw=await crypto.subtle.decrypt({name:'AES-GCM',iv:iv as BufferSource,additionalData:aad},await key(pass,salt),ciphertext as BufferSource);}catch{throw Error('原账号密码错误或迁移包已损坏；未写入资料');}
  const payload=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));return {...await validate(payload),digest:await backupDigest(archive),password:pass};
 }
@@ -46,7 +45,7 @@ export async function migrationRoute(path:string,data:any){
  if(path==='/export'){
   const user=await migrationIdentity(data.password,data.account_id),state=cleanSnapshot(await read(workspace(user.id)));
   const payload={version:1,migration_id:crypto.randomUUID(),exported_at:new Date().toISOString(),profile:{username:user.username,workspace_name:user.workspace_name,avatar:user.avatar},state};
-  const plaintext=new TextEncoder().encode(JSON.stringify(payload));if(plaintext.length>MAX||state.resources.filter(r=>!r.deleted).length>100000)throw Error('迁移资料超过 32 MiB / 100000 条，资料仍保留；请先使用普通备份并联系维护者');
+  const plaintext=new TextEncoder().encode(JSON.stringify(payload));
   await validate(payload);
   const salt=crypto.getRandomValues(new Uint8Array(24)),iv=crypto.getRandomValues(new Uint8Array(12)),encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:aad},await key(secret(data.password),salt),plaintext);
   return {archive:{format:FORMAT,version:1,kdf:'PBKDF2-SHA256',iterations:ITERATIONS,cipher:'AES-256-GCM',salt:base64(salt),iv:base64(iv),ciphertext:base64(new Uint8Array(encrypted))},revision:state.meta[0]?.data_revision??0};

@@ -13,7 +13,7 @@ export function resource(data:any,id:number):Row{
 }
 export function exportData(s:State){return {version:1,edition:'browser',exported_at:now(),data_revision:s.meta[0]?.data_revision??0,settings:{page_limit_mib:s.meta[0]?.page_limit_mib??2},libraries:ordered(s.libraries),categories:ordered(s.categories),shortcuts:ordered(s.shortcuts),rules:s.rules.filter(x=>!x.deleted&&s.categories.some(c=>!c.deleted&&c.id===x.category_id)),resources:s.resources.filter(x=>!x.deleted),tasks:s.tasks.filter(x=>!x.deleted).map(({owner,lease,run_id,...row})=>row),trash:s.trash};}
 export function importData(s:State,put:(table:Table,row:Row)=>void,data:any){
- if(data?.version!==1||!Array.isArray(data.resources)||data.resources.length>100000)throw Error('备份格式无效或超过 100000 条');
+ if(data?.version!==1||!Array.isArray(data.resources))throw Error('备份格式无效');
  for(const key of ['libraries','categories','rules','shortcuts','tasks','trash'])if(data[key]!==undefined&&!Array.isArray(data[key]))throw Error('备份列表格式无效');
  // Validation and writes share one IndexedDB transaction: any error rolls back all changes.
  const clean=data.resources.map((r:any,i:number)=>resource(r,i+1));

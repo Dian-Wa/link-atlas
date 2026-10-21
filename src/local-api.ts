@@ -30,15 +30,15 @@ async function route(path:string,method:string,data:any,params:URLSearchParams,n
   if(path==='/rules')return ordered(s.rules).filter(r=>s.categories.some(c=>!c.deleted&&c.id===r.category_id)).reverse();
   if(path==='/tasks'){const page=Math.max(1,Number(params.get('page'))||1),resources=new Map(live(s).map(r=>[r.id,r])),rows=s.tasks.filter(t=>!t.deleted&&resources.has(t.resource_id)).slice().sort((a,b)=>b.id-a.id);return {items:rows.slice((page-1)*50,page*50).map(t=>{const r=resources.get(t.resource_id)!;return {...t,url:r.url,title:r.title,fetch_local:isLocalService(serviceUrl(s))};}),page,page_size:50,total:rows.length};}
   if(path==='/export')return exportData(s);
-  if(path==='/export-info'){const bytes=new Blob([JSON.stringify(exportData(s))]).size;return {json_supported:bytes<=32*1024*1024&&live(s).length<=100000,estimated_json_bytes:bytes,resource_count:live(s).length};}
+  if(path==='/export-info'){const bytes=new Blob([JSON.stringify(exportData(s))]).size;return {json_supported:true,estimated_json_bytes:bytes,resource_count:live(s).length};}
   if(path==='/trash')return s.trash.filter(x=>!x.restored);
   if(/^\/navigation\/(library|folder)\/\d+\/preview$/.test(path))return preview(s,path.split('/')[2],Number(path.split('/')[3]));
   throw Error('不支持的本地读取操作');
  }
  if(path==='/import/bookmarks'){
-  if(typeof data.html!=='string'||new Blob([data.html]).size>8*1024*1024)throw Error('书签超过 8 MiB');
+  if(typeof data.html!=='string')throw Error('书签格式无效');
   // DOMParser is inert; no parsed elements are attached to the live document.
-  const doc=new DOMParser().parseFromString(data.html,'text/html'),entries=Array.from(doc.querySelectorAll('a[href]'));if(entries.length>10000)throw Error('书签超过 10000 条');
+  const doc=new DOMParser().parseFromString(data.html,'text/html'),entries=Array.from(doc.querySelectorAll('a[href]'));
   return write(name,(s,put)=>{let created=0,duplicates=0;const errors:any[]=[],duplicate_details:any[]=[],index=duplicateIndex(s.resources);for(const a of entries){try{const url=canonical(a.getAttribute('href'));const existing=index.get(duplicateKey(url));if(existing){duplicates++;if(duplicate_details.length<20)duplicate_details.push(duplicateDetail(url,existing));continue;}const id=nextId(s.resources);put('resources',resource({url,title:a.textContent?.slice(0,1000)||url,manual_fields:['title'],...destination(s,data.library_id??ordered(s.libraries)[0]?.id,null)},id));index.set(duplicateKey(url),s.resources.find(x=>x.id===id)!);queue(s,put,id);created++;}catch(error){errors.push({url:a.getAttribute('href'),message:(error as Error).message});}}return {created,duplicates,errors,duplicate_details};});
  }
  if(path==='/import/preview')return importPreview(s,data);
@@ -95,5 +95,5 @@ export async function browserApi(path:string,method='GET',data:any={},headers=ne
  const user=await current();if(!user)throw Object.assign(Error('请先登录浏览器本地账号'),{status:401});if(headers.get('x-atlas-account')&&headers.get('x-atlas-account')!==String(user.id))throw Object.assign(Error('浏览器账号已切换，请重新登录'),{status:409});
  return route(path,method,data,u.searchParams,workspace(user.id));
 }
-export async function downloadBackup(){const data=await browserApi('/api/export') as any;const sealed=await sealBackup(data),blob=new Blob([JSON.stringify(sealed)],{type:'application/json'});if(blob.size>32*1024*1024||data.resources.length>100000)throw Error('备份超过 32 MiB / 100000 条，请先联系维护者分卷导出，数据仍保留');const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='link-atlas-browser-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);await browserApi('/api/backup/mark','POST',{revision:data.data_revision});}
+export async function downloadBackup(){const data=await browserApi('/api/export') as any;const sealed=await sealBackup(data),blob=new Blob([JSON.stringify(sealed)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='link-atlas-browser-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);await browserApi('/api/backup/mark','POST',{revision:data.data_revision});}
 export function installBrowserApi(){window.fetch=async(input,init)=>{const url=new URL(input instanceof Request?input.url:String(input),location.href);if(url.origin!==location.origin||!url.pathname.startsWith('/api/'))return networkFetch(input,init);try{const data=init?.body?JSON.parse(String(init.body)):{};const result=await browserApi(url.pathname+url.search,init?.method??'GET',data,new Headers(init?.headers));return Response.json(result);}catch(error){return Response.json({detail:(error as Error).message},{status:(error as any).status??400});}};startRunner();}
