@@ -17,6 +17,7 @@ export function backupCounts(data:any){return Object.fromEntries(['resources','l
 export async function sealBackup(data:any){return {...data,integrity:{algorithm:'SHA-256',digest:await backupDigest(data),counts:backupCounts(data)}};}
 export async function checkBackup(data:any){
  if(!data||typeof data!=='object'||Array.isArray(data))throw Error('备份结构无效');
+ if(data.format==='link-atlas-account-migration')throw Error('这是账号与资料迁移包，请在登录页导入；普通 JSON 备份在此处恢复');
  const digest=await backupDigest(data);
  if(data.integrity){if(data.integrity.algorithm!=='SHA-256'||data.integrity.digest!==digest)throw Error('备份完整性校验失败，文件可能已损坏或被修改；未写入资料');const counts=backupCounts(data);if(!data.integrity.counts||Object.keys(counts).some(k=>counts[k]!==data.integrity.counts[k]))throw Error('备份数量校验失败；未写入资料');}
  return {digest,integrity:data.integrity?'verified':'legacy'};

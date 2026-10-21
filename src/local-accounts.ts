@@ -8,15 +8,16 @@ const sessionHashes=new Map<string,Promise<string>>();
 async function hash(password:string,salt:string){const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveBits']);return hex(await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:new TextEncoder().encode(salt),iterations:600000},key,256));}
 function password(value:unknown){if(typeof value!=='string'||value.length<8||value.length>128)throw Error('密码需要 8–128 个字符');return value;}
 const profile=(row:Row):User=>({id:row.id,username:row.username,workspace_name:row.workspace_name,avatar:row.avatar});
-export async function current():Promise<User|null>{try{const session=JSON.parse(sessionStorage.getItem(SESSION)||'null');if(!session)return null;const row=(await read(AUTH)).meta.find(x=>x.id===session.id);if(!row||row.session_version!==session.version)return null;const key=session.token+row.salt;let promise=sessionHashes.get(key);if(!promise){promise=hash(session.token,row.salt);sessionHashes.set(key,promise);}if(!(row.session_hashes??[row.session_hash]).includes(await promise))return null;return profile(row);}catch{return null;}}
+export async function current():Promise<User|null>{try{const session=JSON.parse(sessionStorage.getItem(SESSION)||'null');if(!session)return null;const row=(await read(AUTH)).meta.find(x=>x.id===session.id);if(!row||row.pending_migration||row.session_version!==session.version)return null;const key=session.token+row.salt;let promise=sessionHashes.get(key);if(!promise){promise=hash(session.token,row.salt);sessionHashes.set(key,promise);}if(!(row.session_hashes??[row.session_hash]).includes(await promise))return null;return profile(row);}catch{return null;}}
 export async function accountsRoute(path:string,data:any):Promise<unknown>{
- if(path==='/status')return {initialized:(await read(AUTH)).meta.length>0};
+ if(path.startsWith('/migration/'))return (await import('./migration')).migrationRoute(path.slice(10),data);
+ if(path==='/status')return {initialized:(await read(AUTH)).meta.some(x=>!x.pending_migration)};
  if(path==='/logout'){sessionStorage.removeItem(SESSION);window.dispatchEvent(new Event('atlas-session-expired'));return {logged_out:true};}
  if(path==='/register'||path==='/login'){
   const username=text(data.username,32).normalize('NFKC').toLowerCase();if(!/^[\p{L}\p{N}_.-]{2,32}$/u.test(username))throw Error('账号需为 2–32 个字母、数字、中文或 . _ -');
   const secret=password(data.password);const existing=(await read(AUTH)).meta.find(x=>x.username===username);
   if(path==='/register'&&existing)throw Error('账号已存在');
-  if(path==='/login'&&(!existing||existing.password_hash!==await hash(secret,existing.salt)))throw Error('账号或密码错误');
+  if(path==='/login'&&(!existing||existing.pending_migration||existing.password_hash!==await hash(secret,existing.salt)))throw Error('账号或密码错误');
   const salt=existing?.salt??random(),password_hash=existing?.password_hash??await hash(secret,salt),token=random(),session_hash=await hash(token,salt);
   const row=await write(AUTH,(s,put)=>{if(path==='/register'&&s.meta.some(x=>x.username===username))throw Error('账号已存在');const row:Row=existing?{...s.meta.find(x=>x.id===existing.id)!}:{id:nextId(s.meta),username,workspace_name:'我的资源空间',avatar:'',salt,password_hash,session_version:0};row.session_hashes=[...(row.session_hashes??[row.session_hash]).filter(Boolean),session_hash].slice(-20);put('meta',row);return row;});
   await initialize(workspace(row.id));sessionStorage.setItem(SESSION,JSON.stringify({id:row.id,token,version:row.session_version}));void navigator.storage?.persist?.().catch(()=>{});return profile(row);
@@ -36,3 +37,22 @@ export async function accountsRoute(path:string,data:any):Promise<unknown>{
  }
  throw Error('不支持的账号操作');
 }
+
+// Migration accounts stay inactive until the independent workspace transaction commits.
+export async function migrationIdentity(secret:unknown,expectedId:unknown){
+ const user=await current();if(!user||user.id!==expectedId)throw Error('账号已变化，请重新登录后导出');
+ const row=(await read(AUTH)).meta.find(x=>x.id===user.id)!;
+ if(await hash(password(secret),row.salt)!==row.password_hash)throw Error('原账号密码错误');
+ const fresh=(await read(AUTH)).meta.find(x=>x.id===user.id);
+ if(!fresh||fresh.password_hash!==row.password_hash||(await current())?.id!==user.id)throw Error('账号已变化，请重新登录后导出');
+ return profile(row);
+}
+export async function migrationConflict(username:string,migrationId:string){const row=(await read(AUTH)).meta.find(x=>x.username===username);return !!row&&(!row.pending_migration||row.migration_id!==migrationId);}
+export async function reserveMigration(user:Omit<User,'id'>,secret:string,migrationId:string){
+ const salt=random(),password_hash=await hash(password(secret),salt);
+ return write(AUTH,(s,put)=>{const existing=s.meta.find(x=>x.username===user.username);
+  if(existing&&(!existing.pending_migration||existing.migration_id!==migrationId))throw Error('当前浏览器已有同名账号，不能覆盖；请使用其他浏览器或独立浏览器配置文件迁移');
+  const row={id:existing?.id??nextId(s.meta),...user,salt,password_hash,pending_migration:true,migration_id:migrationId,session_version:0,session_hashes:[]};put('meta',row);return row.id;
+ });
+}
+export async function activateMigration(id:number,migrationId:string){return write(AUTH,(s,put)=>{const row=s.meta.find(x=>x.id===id);if(!row?.pending_migration||row.migration_id!==migrationId)throw Error('迁移状态已变化，请重新导入');const next={...row,pending_migration:false};put('meta',next);return profile(next);});}
