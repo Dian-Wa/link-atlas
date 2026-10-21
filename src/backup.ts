@@ -1,4 +1,4 @@
-import {canonical,destination,nextId,now,ordered,text,type State,type Row,type Table} from './storage';
+import {canonical,destination,nextId,nextTrashId,now,ordered,text,type State,type Row,type Table} from './storage';
 export const editable=['title','description','category_id','library_id','tags','notes','kind','favorite','archived'];
 export function resource(data:any,id:number):Row{
  if(!data||typeof data!=='object')throw Error('资源格式无效');
@@ -30,6 +30,6 @@ export function importData(s:State,put:(table:Table,row:Row)=>void,data:any){
  for(const rid of resources.values()){const r=s.resources.find(x=>x.id===rid)!;if(['running','queued'].includes(r.status)&&!hasTask.has(rid))put('tasks',{id:nextId(s.tasks),resource_id:rid,status:'queued',attempts:0,next_run:0,message:'从备份恢复，等待抓取',updated_at:now()});}
  if(data.settings){const v=data.settings.page_limit_mib;if(!Number.isInteger(v)||v<1||v>10)throw Error('读取上限无效');if(pristine)put('meta',{...s.meta[0],page_limit_mib:v});}
  // Deleted records remain recoverable in the browser trash; never import active task leases.
- for(const entry of data.trash??[])if(entry&&typeof entry==='object'&&entry.data)put('trash',{...entry,id:nextId(s.trash)});
+ for(const entry of data.trash??[])if(entry&&typeof entry==='object'&&entry.data)put('trash',{...entry,id:nextTrashId(s)});
  return {created,duplicates,errors:[]};
 }

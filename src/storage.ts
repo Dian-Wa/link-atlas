@@ -17,16 +17,18 @@ async function load(db:IDBDatabase,mode:IDBTransactionMode='readonly'){
  return {tx,done,state:Object.fromEntries(tables.map((table,i)=>[table,rows[i]])) as State};
 }
 export async function read(name:string){let value=snapshots.get(name);if(!value){value=(async()=>{const {state,done}=await load(await database(name));await done;return state;})();snapshots.set(name,value);value.catch(()=>snapshots.delete(name));}return value;}
-export async function write<T>(name:string,change:(state:State,put:(table:Table,row:Row)=>void)=>T):Promise<T>{
+export async function write<T>(name:string,change:(state:State,put:(table:Table,row:Row)=>void,remove:(table:Table,id:number)=>void)=>T):Promise<T>{
  if(!navigator.locks)throw Error('浏览器不支持安全的多标签写入，请使用新版 Chrome、Edge 或 Firefox');
  return navigator.locks.request('atlas-write-'+name,async()=>{
   const {state,tx,done}=await load(await database(name),'readwrite');
   const put=(table:Table,row:Row)=>{const i=state[table].findIndex(x=>x.id===row.id);if(i<0)state[table].push(row);else state[table][i]=row;tx.objectStore(table).put(row);};
-  let result:T;try{result=change(state,put);}catch(error){tx.abort();await done.catch(()=>{});throw error;}
+  const remove=(table:Table,id:number)=>{const i=state[table].findIndex(x=>x.id===id);if(i>=0)state[table].splice(i,1);tx.objectStore(table).delete(id);};
+  let result:T;try{result=change(state,put,remove);}catch(error){tx.abort();await done.catch(()=>{});throw error;}
   await done;snapshots.delete(name);channel?.postMessage(name);window.dispatchEvent(new Event('atlas-data-changed'));return result;
  });
 }
 export const nextId=(rows:Row[])=>rows.reduce((max,row)=>Math.max(max,row.id),0)+1;
+export const nextTrashId=(state:State)=>Math.max(nextId(state.trash),Number(state.meta[0]?.trash_sequence)||1);
 export const ordered=(rows:Row[])=>rows.filter(x=>!x.deleted).slice().sort((a,b)=>(a.position??0)-(b.position??0)||a.id-b.id);
 export const now=()=>new Date().toISOString();
 export function canonical(value:unknown){if(typeof value!=='string'||value.length>4096||/[\u0000-\u0020]/.test(value))throw Error('链接格式无效');const u=new URL(value);if(!['https:','http:'].includes(u.protocol)||u.username||u.password)throw Error('只支持不含账号密码的 HTTP/HTTPS 链接');u.hash='';return u.href;}
