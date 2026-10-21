@@ -1,0 +1,1 @@
+"""Local Link Atlas application."""

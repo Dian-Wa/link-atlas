@@ -1,0 +1,10 @@
+.git
+node_modules
+dist
+cache
+logs
+data
+.venv
+.env*
+**/__pycache__
+*.sqlite*

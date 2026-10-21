@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: link-atlas-fetch
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /fetch-api/health
+    envVars:
+      - key: ATLAS_ALLOWED_ORIGINS
+        value: https://dian-wa.github.io
