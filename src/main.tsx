@@ -102,6 +102,7 @@ function App(){
 
   return <ModalContext.Provider value={{busy,close:()=>setModal(null)}}><div className="app-shell">
     <aside id="resource-navigation" className={'sidebar '+(sidebar?'mobile-open':'')}>
+      <button className="icon-button sidebar-close" aria-label="收起导航" onClick={()=>setSidebar(false)}><X size={21}/></button>
       <a className="brand" href="#" onClick={e=>{e.preventDefault();navigate('all');}}><span className="brand-mark"><Link2 size={24}/></span><span>拾链 <small>Link Atlas</small></span></a>
       <button className="workspace" aria-label="打开个人设置" onClick={account.openSettings}><UserAvatar user={account.user} className="workspace-avatar"/><div><b>{account.user.workspace_name}</b><small><span className="online-dot"/> 本地存储 · {account.user.username}</small></div><ShieldCheck size={17}/></button>
       <Shortcuts items={shortcuts} libraries={libraries} folders={categories} view={view} library={library} category={category} tag={tag} onSelect={s=>{navigate(s.view,s.category_id);setLibrary(s.library_id);}} onChanged={()=>reload(true)}/>
