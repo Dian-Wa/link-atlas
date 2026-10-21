@@ -88,3 +88,12 @@ def test_no_wildcard_origin():
     import pytest
     for origin in ['*','http://example.com','https://example.com/path','https://user:pass@example.com']:
         with pytest.raises(ValueError):module.create_service(origins=[origin])
+
+
+def test_render_own_origin_is_allowed(monkeypatch):
+    monkeypatch.setenv('RENDER_EXTERNAL_URL','https://example.onrender.com')
+    monkeypatch.setenv('ATLAS_ALLOWED_ORIGINS','https://dian-wa.github.io')
+    with TestClient(module.create_service(crawler_factory=FakeCrawler),base_url='http://127.0.0.1:8787') as c:
+        result=c.post('/fetch-api/fetch',headers={'Origin':'https://example.onrender.com'},json={'url':'https://example.com'})
+        assert result.status_code==200
+        assert result.headers['access-control-allow-origin']=='https://example.onrender.com'

@@ -20,6 +20,9 @@ from backend.store import canonical_url
 def create_service(origins=None, crawler_factory=Crawler):
     if origins is None:
         origins = [x.strip() for x in os.environ.get('ATLAS_ALLOWED_ORIGINS', 'http://127.0.0.1:5180').split(',') if x.strip()]
+        external = os.environ.get('RENDER_EXTERNAL_URL', '').rstrip('/')
+        if external and external not in origins:
+            origins.append(external)
     for origin in origins:
         parsed = urlsplit(origin)
         if not parsed.netloc or parsed.path or parsed.query or parsed.fragment or parsed.username or parsed.password or (parsed.scheme != 'https' and not (parsed.scheme == 'http' and parsed.hostname in ('127.0.0.1', 'localhost'))):
