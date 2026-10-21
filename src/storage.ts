@@ -22,8 +22,8 @@ export async function write<T>(name:string,change:(state:State,put:(table:Table,
  return navigator.locks.request('atlas-write-'+name,async()=>{
   const {state,tx,done}=await load(await database(name),'readwrite');
   const track=name.startsWith('link-atlas-browser-space-')&&state.meta.some(x=>x.id===1),changed=new Set<string>();
-  const fields:Partial<Record<Table,string[]>>={resources:['url','title','description','notes','tags','repo','manual_fields','library_id','category_id','kind','favorite','archived','deleted'],meta:['page_limit_mib','touched']};
-  const meaningful=(table:Table,before:Row|undefined,after:Row|undefined)=>{if(!track||table==='tasks')return;const keys=fields[table];if(keys?keys.some(key=>JSON.stringify(before?.[key])!==JSON.stringify(after?.[key])):JSON.stringify(before)!==JSON.stringify(after))changed.add(table+':'+(after?.id??before?.id));};
+  const fields:Partial<Record<Table,string[]>>={resources:['url','title','description','notes','tags','repo','manual_fields','library_id','category_id','kind','favorite','archived','deleted'],meta:['page_limit_mib','touched'],tasks:['control_version']};
+  const meaningful=(table:Table,before:Row|undefined,after:Row|undefined)=>{if(!track)return;const keys=fields[table];if(keys?keys.some(key=>JSON.stringify(before?.[key])!==JSON.stringify(after?.[key])):JSON.stringify(before)!==JSON.stringify(after))changed.add(table+':'+(after?.id??before?.id));};
   const put=(table:Table,row:Row)=>{const i=state[table].findIndex(x=>x.id===row.id);meaningful(table,i<0?undefined:state[table][i],row);if(i<0)state[table].push(row);else state[table][i]=row;tx.objectStore(table).put(row);};
   const remove=(table:Table,id:number)=>{const i=state[table].findIndex(x=>x.id===id);if(i>=0){meaningful(table,state[table][i],undefined);state[table].splice(i,1);}tx.objectStore(table).delete(id);};
   let result:T;try{result=change(state,put,remove);}catch(error){tx.abort();await done.catch(()=>{});throw error;}
@@ -35,7 +35,7 @@ export const nextId=(rows:Row[])=>rows.reduce((max,row)=>Math.max(max,row.id),0)
 export const nextTrashId=(state:State)=>Math.max(nextId(state.trash),Number(state.meta[0]?.trash_sequence)||1);
 export const ordered=(rows:Row[])=>rows.filter(x=>!x.deleted).slice().sort((a,b)=>(a.position??0)-(b.position??0)||a.id-b.id);
 export const now=()=>new Date().toISOString();
-export function canonical(value:unknown){if(typeof value!=='string'||value.length>4096||/[\u0000-\u0020]/.test(value))throw Error('链接格式无效');const u=new URL(value);if(!['https:','http:'].includes(u.protocol)||u.username||u.password)throw Error('只支持不含账号密码的 HTTP/HTTPS 链接');u.hash='';return u.href;}
+export function canonical(value:unknown){if(typeof value!=='string'||value.length>4096||/[\u0000-\u0020]/.test(value))throw Error('链接格式无效');const u=new URL(value);if(!['https:','http:'].includes(u.protocol)||u.username||u.password)throw Error('只支持不含账号密码的 HTTP/HTTPS 链接');if(!/^#!?\//.test(u.hash))u.hash='';return u.href;}
 export function text(value:unknown,max=60){if(typeof value!=='string'||!value.trim()||value.trim().length>max)throw Error(`请输入 1–${max} 字`);return value.trim();}
 export function children(state:State,id:number){const ids=new Set([id]);let changed=true;while(changed){changed=false;for(const c of state.categories)if(!c.deleted&&ids.has(c.parent_id)&&!ids.has(c.id)){ids.add(c.id);changed=true;}}return ids;}
 export function destination(state:State,library:unknown,category:unknown){let lid=library==null?null:Number(library),cid=category==null?null:Number(category);if(cid!==null){const c=state.categories.find(x=>x.id===cid&&!x.deleted);if(!c)throw Error('分类不存在');if(lid!==null&&lid!==c.library_id)throw Error('分类不属于所选资源库');lid=c.library_id;}if(lid!==null&&!state.libraries.some(x=>x.id===lid&&!x.deleted))throw Error('资源库不存在');return {library_id:lid,category_id:cid};}

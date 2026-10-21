@@ -1,3 +1,4 @@
+import {duplicateKey,duplicateIndex} from './duplicates';
 import type {Row,State} from './storage';
 import {importData} from './backup';
 export function backupStatus(s:State,time=Date.now()){
@@ -25,6 +26,6 @@ export async function importPreview(state:State,data:any){
  const put=(table:keyof State,row:Row)=>{const i=s[table].findIndex(x=>x.id===row.id);if(i<0)s[table].push(row);else s[table][i]=row;};
  const priorLibraries=new Set(state.libraries.filter(x=>!x.deleted).map(x=>x.id)),priorCategories=new Set(state.categories.filter(x=>!x.deleted).map(x=>x.id));
  const result=importData(s,put,data),newLibraries=s.libraries.filter(x=>!x.deleted&&!priorLibraries.has(x.id)).length,newCategories=s.categories.filter(x=>!x.deleted&&!priorCategories.has(x.id)).length,after=backupCounts({resources:s.resources.filter(x=>!x.deleted),libraries:s.libraries.filter(x=>!x.deleted),categories:s.categories.filter(x=>!x.deleted),tasks:s.tasks.filter(x=>!x.deleted)});
- const current=new Map(state.resources.filter(x=>!x.deleted).map(r=>[r.url,r])),conflicts=(data.resources??[]).filter((r:any)=>{let row=current.get(r.url);try{const url=new URL(r.url);url.hash='';row=current.get(url.href);}catch{}return row&&['title','description','notes','tags'].some(k=>r[k]!==undefined&&JSON.stringify(r[k])!==JSON.stringify(row[k]));});
- return {...checked,revision:state.meta[0]?.data_revision??0,created:result.created,duplicates:result.duplicates,total:data.resources.length,conflicts:conflicts.length,conflict_samples:conflicts.slice(0,5).map((r:any)=>({url:r.url,title:r.title??r.url})),new_libraries:newLibraries,new_categories:newCategories,merged_libraries:Math.max(0,(data.libraries?.length??0)-newLibraries),merged_categories:Math.max(0,(data.categories?.length??0)-newCategories),new_tasks:after.tasks-before.tasks,before_resources:before.resources,after_resources:after.resources};
+ const current=duplicateIndex(state.resources),conflicts=(data.resources??[]).filter((r:any)=>{const row=current.get(duplicateKey(r.url));return row&&['title','description','notes','tags'].some(k=>r[k]!==undefined&&JSON.stringify(r[k])!==JSON.stringify(row[k]));});
+ return {...checked,revision:state.meta[0]?.data_revision??0,created:result.created,duplicate_details:result.duplicate_details,duplicates:result.duplicates,total:data.resources.length,conflicts:conflicts.length,conflict_samples:conflicts.slice(0,5).map((r:any)=>({url:r.url,title:r.title??r.url})),new_libraries:newLibraries,new_categories:newCategories,merged_libraries:Math.max(0,(data.libraries?.length??0)-newLibraries),merged_categories:Math.max(0,(data.categories?.length??0)-newCategories),new_tasks:after.tasks-before.tasks,before_resources:before.resources,after_resources:after.resources};
 }
