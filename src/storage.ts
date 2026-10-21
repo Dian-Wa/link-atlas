@@ -21,9 +21,13 @@ export async function write<T>(name:string,change:(state:State,put:(table:Table,
  if(!navigator.locks)throw Error('浏览器不支持安全的多标签写入，请使用新版 Chrome、Edge 或 Firefox');
  return navigator.locks.request('atlas-write-'+name,async()=>{
   const {state,tx,done}=await load(await database(name),'readwrite');
-  const put=(table:Table,row:Row)=>{const i=state[table].findIndex(x=>x.id===row.id);if(i<0)state[table].push(row);else state[table][i]=row;tx.objectStore(table).put(row);};
-  const remove=(table:Table,id:number)=>{const i=state[table].findIndex(x=>x.id===id);if(i>=0)state[table].splice(i,1);tx.objectStore(table).delete(id);};
+  const track=name.startsWith('link-atlas-browser-space-')&&state.meta.some(x=>x.id===1),changed=new Set<string>();
+  const fields:Partial<Record<Table,string[]>>={resources:['url','title','description','notes','tags','repo','manual_fields','library_id','category_id','kind','favorite','archived','deleted'],meta:['page_limit_mib','touched']};
+  const meaningful=(table:Table,before:Row|undefined,after:Row|undefined)=>{if(!track||table==='tasks')return;const keys=fields[table];if(keys?keys.some(key=>JSON.stringify(before?.[key])!==JSON.stringify(after?.[key])):JSON.stringify(before)!==JSON.stringify(after))changed.add(table+':'+(after?.id??before?.id));};
+  const put=(table:Table,row:Row)=>{const i=state[table].findIndex(x=>x.id===row.id);meaningful(table,i<0?undefined:state[table][i],row);if(i<0)state[table].push(row);else state[table][i]=row;tx.objectStore(table).put(row);};
+  const remove=(table:Table,id:number)=>{const i=state[table].findIndex(x=>x.id===id);if(i>=0){meaningful(table,state[table][i],undefined);state[table].splice(i,1);}tx.objectStore(table).delete(id);};
   let result:T;try{result=change(state,put,remove);}catch(error){tx.abort();await done.catch(()=>{});throw error;}
+  if(changed.size){const meta={...state.meta.find(x=>x.id===1)!,data_revision:(Number(state.meta.find(x=>x.id===1)?.data_revision)||0)+changed.size};tx.objectStore('meta').put(meta);state.meta[state.meta.findIndex(x=>x.id===1)]=meta;}
   await done;snapshots.delete(name);channel?.postMessage(name);window.dispatchEvent(new Event('atlas-data-changed'));return result;
  });
 }

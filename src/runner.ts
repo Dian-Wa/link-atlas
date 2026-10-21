@@ -10,17 +10,17 @@ const configured=String((import.meta as any).env?.VITE_FETCH_SERVICE_URL??'').re
 export function serviceUrl(s:State){return s.meta[0]?.service_url||configured||LOCAL_SERVICE;}
 function classify(s:State,r:Row,result:any){const text=[r.url,result.title,result.description,JSON.stringify(result.repo??{})].join(' ').toLowerCase();for(const rule of s.rules.filter(x=>!x.deleted).slice().reverse()){const cat=s.categories.find(x=>x.id===rule.category_id&&!x.deleted&&x.library_id===r.library_id);if(!cat)continue;for(const word of rule.keywords.split(/[,，]/).map((x:string)=>x.trim().toLowerCase()).filter(Boolean)){const matches=/^[a-z0-9]+$/.test(word)?new RegExp('(^|[^a-z0-9])'+word+'([^a-z0-9]|$)').test(text):text.includes(word);if(matches)return {category_id:cat.id,classification_reason:'匹配本地分类规则：'+word};}}return {classification_reason:'没有匹配规则，已放入待整理'};}
 async function execute(name:string,task:Row,endpoint:string,limit:number){
- let payload:any,status='failed',message='',delay:number|undefined,unavailable=false;
+ let payload:any,status='failed',message='',delay:number|undefined,unavailable=false,wait_reason='queue';
  try{
   const response=await networkFetch(endpoint.replace(/\/$/,'')+'/fetch-api/fetch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url:task.url,page_limit_mib:limit}),signal:AbortSignal.timeout(50000),referrerPolicy:'no-referrer'});
-  const data=await response.json();if(response.status===429){delay=Math.max(1,Math.min(86400,Number(response.headers.get('Retry-After')??data.retry_after)||60));message=data.detail||'服务限流，等待重试';}
+  const data=await response.json();if(response.status===429){delay=Math.max(1,Math.min(86400,Number(response.headers.get('Retry-After')??data.retry_after)||60));message=data.detail||'服务限流，等待重试';wait_reason=message.includes('服务繁忙')?'service_busy':'rate_limit';}
   else if(response.ok){payload=data.data;status=data.status;message=data.message;if(!['success','partial','failed'].includes(status)||!payload||typeof payload!=='object'||Array.isArray(payload)||typeof message!=='string')throw Error('抓取服务返回格式无效');resource({...payload,url:task.url,status},1);}
-  else {message=data.detail||'抓取服务请求失败';if(data.retryable&&task.attempts<2)delay=2**(task.attempts+1);}
- }catch(error){payload=undefined;status='failed';if(isLocalService(endpoint)){unavailable=true;delay=5;message='本机抓取连接已断开，等待服务恢复；未消耗网页重试次数';bridgeDisconnected(endpoint);}else{message='网络请求失败：'+(error as Error).message;if(task.attempts<2)delay=2**(task.attempts+1);}}
+  else {message=data.detail||'抓取服务请求失败';if(data.retryable&&task.attempts<2){delay=2**(task.attempts+1);wait_reason='network_retry';}}
+ }catch(error){payload=undefined;status='failed';if(isLocalService(endpoint)){unavailable=true;delay=5;wait_reason='local_connection';message='本机抓取连接已断开，等待服务恢复；未消耗网页重试次数';bridgeDisconnected(endpoint);}else{message='网络请求失败：'+(error as Error).message;if(task.attempts<2){delay=2**(task.attempts+1);wait_reason='network_retry';}}}
  await write(name,(s,put)=>{
   const t=s.tasks.find(x=>x.id===task.id&&!x.deleted),r=s.resources.find(x=>x.id===task.resource_id&&!x.deleted);if(!t||!r||t.owner!==owner)return;
   const updates:any={};if(payload){const values={...payload,...classify(s,r,payload)};for(const key of ['title','description','repo','tags','kind','category_id','classification_reason'])if(values[key]!==undefined&&!r.manual_fields.includes(key))updates[key]=values[key];}
-  const finalStatus=delay?'queued':status;put('tasks',{...t,status:finalStatus,attempts:t.attempts+(unavailable?0:1),next_run:delay?Date.now()/1000+delay:0,message:message.slice(0,1000),updated_at:now(),owner:null});put('resources',{...r,...updates,status:finalStatus,fetch_message:message.slice(0,1000),updated_at:now()});
+  const finalStatus=delay?'queued':status;put('tasks',{...t,status:finalStatus,wait_reason:delay?wait_reason:'',attempts:t.attempts+(unavailable?0:1),next_run:delay?Date.now()/1000+delay:0,message:message.slice(0,1000),updated_at:now(),owner:null});put('resources',{...r,...updates,status:finalStatus,fetch_message:message.slice(0,1000),updated_at:now()});
  });
 }
 async function tick(){if(busy||!navigator.onLine||!navigator.locks)return;busy=true;try{const user=await current();if(!user)return;const name=workspace(user.id),s=await read(name),endpoint=serviceUrl(s);if(!endpoint||!s.tasks.some(x=>!x.deleted&&(x.status==='running'&&x.owner!==owner||x.status==='queued'&&x.next_run<=Date.now()/1000)))return;
