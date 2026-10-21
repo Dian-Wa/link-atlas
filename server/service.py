@@ -2,6 +2,7 @@
 import asyncio
 import math
 import os
+import secrets
 import time
 from collections import defaultdict, deque
 from urllib.parse import urlsplit
@@ -11,13 +12,26 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import Headers
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pathlib import Path
 
 from backend.crawler import Crawler, RateLimited, UnsafeURL
 from backend.store import canonical_url
 
 
-def create_service(origins=None, crawler_factory=Crawler):
+class LocalNetworkCORS(CORSMiddleware):
+    """Support the PNA preflight on both old and new Starlette releases."""
+    def preflight_response(self, request_headers):
+        private = request_headers.get('access-control-request-private-network')
+        filtered = Headers({k: v for k, v in request_headers.items() if k != 'access-control-request-private-network'})
+        response = super().preflight_response(filtered)
+        if private == 'true' and response.status_code == 200 and self.is_allowed_origin(request_headers.get('origin', '')):
+            response.headers['Access-Control-Allow-Private-Network'] = 'true'
+        return response
+
+
+def create_service(origins=None, crawler_factory=Crawler, local_only=False, shutdown_token=None, shutdown_callback=None):
     if origins is None:
         origins = [x.strip() for x in os.environ.get('ATLAS_ALLOWED_ORIGINS', 'http://127.0.0.1:5180').split(',') if x.strip()]
         external = os.environ.get('RENDER_EXTERNAL_URL', '').rstrip('/')
@@ -52,11 +66,13 @@ def create_service(origins=None, crawler_factory=Crawler):
         response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https: http://127.0.0.1:8787; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         return response
 
-    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=['POST', 'GET'], allow_headers=['content-type'], expose_headers=['Retry-After'])
+    app.add_middleware(LocalNetworkCORS, allow_origins=origins, allow_methods=['POST', 'GET'], allow_headers=['content-type'], expose_headers=['Retry-After'])
+    if local_only:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1', 'localhost', '[::1]'])
 
     @app.get('/fetch-api/health')
     async def health():
-        return {'status': 'ok', 'storage': 'none', 'source_storage': False, 'concurrency': 3}
+        return {'status': 'ok', 'app': 'link-atlas-fetch', 'mode': 'local' if local_only else 'service', 'storage': 'none', 'source_storage': False, 'concurrency': 3}
 
     @app.post('/fetch-api/fetch')
     async def fetch(request: Request):
@@ -99,8 +115,16 @@ def create_service(origins=None, crawler_factory=Crawler):
             except (httpx.HTTPError, ValueError) as error:
                 return JSONResponse({'detail': str(error)[:300], 'retryable': False}, status_code=422)
 
+    if local_only and shutdown_token and shutdown_callback:
+        @app.post('/fetch-api/control/stop')
+        async def stop(request: Request):
+            if not secrets.compare_digest(request.headers.get('x-atlas-control', ''), shutdown_token):
+                return JSONResponse({'detail': '无效的本机控制令牌'}, status_code=403)
+            shutdown_callback()
+            return {'stopping': True}
+
     dist = Path(__file__).resolve().parents[1]/'dist'
-    if dist.exists():
+    if dist.exists() and not local_only:
         app.mount('/', StaticFiles(directory=dist, html=True), name='frontend')
     return app
 

@@ -1,15 +1,16 @@
 # 拾链 · Link Atlas
 
-[打开浏览器版](https://dian-wa.github.io/link-atlas/) · [部署无数据库抓取服务](https://render.com/deploy?repo=https://github.com/Dian-Wa/link-atlas)
+[打开公网应用](https://dian-wa.github.io/link-atlas/) · [下载 Windows 本机抓取工具](https://github.com/Dian-Wa/link-atlas/releases/download/local-fetch-v1/link-atlas-local-fetch-windows.zip)
 
 独立于 Windows 本机版的公网版本。React / TypeScript / Vite + IndexedDB；Python FastAPI 只提供无状态元信息抓取，**不连接数据库、不保存收藏、不下载源码或附件**。
 
 ## 使用
 
 1. 打开 GitHub Pages 页面，创建当前浏览器的本地账号。
-2. 在“抓取设置”填写 HTTPS 抓取服务根地址，例如 `https://你的服务.onrender.com`。没有配置时资料先入库，任务保留排队。
-3. 添加网址或 GitHub 公共仓库，页面打开时最多同时抓取 3 条。关闭页面后不保证持续抓取；重新打开并登录后继续。多标签页通过 Web Locks 保证同一空间只有一个抓取执行器。
-4. 定期导出 JSON，下载后确认备份文件确实存在。备份含链接、分类、规则、标签、备注、抓取任务和回收区；不含本地账号密码和头像。支持导入本机版 JSON。重复地址跳过，保留已有人工内容；导入失败整体回滚。
+2. 下载并解压 [Windows 本机抓取工具](https://github.com/Dian-Wa/link-atlas/releases/download/local-fetch-v1/link-atlas-local-fetch-windows.zip)，双击 `start-local-fetch.cmd`。只需 Python 3.11+，首次会在工具目录安装依赖，不需要 Node 或云服务。
+3. 在公网页面点击“连接本机抓取”，允许 Chrome/Edge 的本地网络或本机（Loopback）访问权限。默认服务地址为 `http://127.0.0.1:8787`；服务只监听本机，不连接数据库。若使用 Codex 内嵌浏览器无法授权，请用普通 Chrome/Edge 打开同一个 GitHub 链接。
+4. 添加网址或 GitHub 公共仓库，页面打开时最多同时抓取 3 条。关闭页面后不保证持续抓取；重新打开并登录后继续。多标签页通过 Web Locks 保证同一空间只有一个抓取执行器。
+5. 定期导出 JSON，下载后确认备份文件确实存在。备份含链接、分类、规则、标签、备注、抓取任务和回收区；不含本地账号密码和头像。支持导入本机版 JSON。重复地址跳过，保留已有人工内容；导入失败整体回滚。
 
 浏览器账号仅用于本地解锁和区分空间，不是云端账号，IndexedDB 中的资料未加密。关闭整个页面后需要重新登录；刷新不丢失登录。换浏览器、设备或网站域名请使用 JSON 备份迁移。清理站点数据会丢失资料，浏览器持久存储申请也不代替备份。当前 JSON 单文件上限 32 MiB / 100000 条；超限时保留资料并提示，不生成无法原样恢复的备份。
 
@@ -25,14 +26,14 @@
 
 前端：GitHub Actions 构建并发布 GitHub Pages。仓库变量 `VITE_FETCH_SERVICE_URL` 可设置默认抓取服务根地址；不设置时用户在界面填写。域名属于浏览器存储边界，同一 GitHub Pages 主域下的页面属于同源，不应把本地账号当作强隔离安全边界。
 
-后端：仓库包含 Render Blueprint `render.yaml`，仅创建一个 Free Docker Web Service，无数据库、无磁盘。点击仓库 README 的 Deploy to Render 后登录自己的 Render 账号，确认 Free 方案再部署。`ATLAS_ALLOWED_ORIGINS` 填前端来源，示例 `https://dian-wa.github.io`，多个用逗号分隔，不含路径。首次部署后把生成的 HTTPS 根地址填写到前端抓取设置。来源限制不等于身份认证，公开服务另有每客户端每分钟 30 次和总并发 3 的限额，勿公开配置宽泛来源。
+默认抓取在用户自己的电脑执行，应用页面仍是 GitHub Pages。服务未启动、权限未授予或连接中断时，任务继续排队，不消耗网页网络失败的两次重试机会。网络恢复后可以点击连接，未完成任务继续执行。关闭页面后暂停；本机抓取工具可以独立保持运行。双击 `stop-local-fetch.cmd` 只停止本机抓取服务，不停止本机版应用，也不清理浏览器资料。
 
-Render 免费实例空闲后会休眠，唤醒可能较慢；达到平台配额时可能暂停。浏览器资料不受后端休眠或重启影响。自动抓取依赖服务可达及目标网站允许访问，不能保证所有网页都能提取。
+首次浏览器授权由用户完成，测试不会修改用户浏览器权限。Chrome/Edge 的本地网络访问机制见 [Chrome 官方说明](https://developer.chrome.com/blog/local-network-access?hl=zh-CN)。不使用关闭浏览器安全校验的启动参数。来源只允许指定 GitHub 主域和本机开发页，不使用通配来源；本机服务还有 Host 校验、每客户端每分钟 30 次及总并发 3 的限额。只接受公网抓取目标，不能借助本机服务访问内网。
 
-## 本地开发
+可选云端抓取部署配置仍保留在仓库，但本使用方式不需要 Render、云数据库或云服务器。用户显式填写其他 HTTPS 抓取服务地址时仍兼容原有模式。
 
-前端：`npm ci` 后执行 `npm run dev`（127.0.0.1:5180）。后端：安装 requirements.txt 后执行 `python -m uvicorn server.service:app --host 127.0.0.1 --port 8787 --no-access-log`。抓取设置填写 http://127.0.0.1:8787。
+## 开发
 
-构建：`npm run build`。后端测试：`python -m pytest tests/test_service.py -q`（需先安装 pytest）。浏览器验收：`node tests/browser.cjs`，先设置 `PLAYWRIGHT_MODULE` 为已有 Playwright 安装路径，仅使用 cache 内全新隔离档案；不读取本机正式资料。
+前端：`npm ci` 后 `npm run dev`（5180）；构建 `npm run build`。本机抓取：`start-local-fetch.cmd`，服务仅监听 127.0.0.1:8787。停止：`stop-local-fetch.cmd`。Python 3.11+，安装 requirements-local.txt。来源由 server/local.py 精确配置。
 
-源代码中的 backend 模块仅复用元信息抓取与校验逻辑；服务入口 server/service.py 不创建 Store 或任何 SQLite 数据库。没有上传开发电脑的账号、收藏、日志或缓存。
+后端测试：安装 pytest 后执行 `python -m pytest tests -q`。浏览器脚本用 PLAYWRIGHT_MODULE 指向现有 Playwright；测试档案在 cache，截图在 logs。`tests/browser-local.cjs --public` 验证真实公网页面到本机抓取，自动授权仅限全新隔离测试档案，不修改用户浏览器权限。

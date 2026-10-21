@@ -1,0 +1,31 @@
+// No security-disabling flags: grant loopback permission only in this isolated QA context.
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const publicUrl='https://dian-wa.github.io/link-atlas/',local='http://127.0.0.1:8787',probeOnly=process.argv.includes('--probe-only');
+(async()=>{
+ const context=await chromium.launchPersistentContext(path.resolve('cache/github-local-qa-'+Date.now()),{headless:true,channel:'chrome',viewport:{width:1500,height:1000}});
+ const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')console.log('browser console:',m.text());});page.on('requestfailed',r=>console.log('request failed:',r.url(),r.failure()?.errorText));
+ try{
+  const cdp=await context.newCDPSession(page),version=await cdp.send('Browser.getVersion');
+  let permission;
+  try{await cdp.send('Browser.grantPermissions',{origin:'https://dian-wa.github.io',permissions:['localNetwork','loopbackNetwork']});permission='localNetwork + loopbackNetwork';}catch{await cdp.send('Browser.grantPermissions',{origin:'https://dian-wa.github.io',permissions:['localNetworkAccess']});permission='localNetworkAccess';}
+  console.log('Browser',version.product,'permission',permission);await page.goto(publicUrl,{waitUntil:'domcontentloaded',timeout:60000});
+  const direct=await page.evaluate(async base=>{const health=await(await fetch(base+'/fetch-api/health')).json();const response=await fetch(base+'/fetch-api/fetch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url:'https://example.com/',page_limit_mib:2})});return {health,status:response.status,result:await response.json()};},local);
+  assert.equal(direct.health.mode,'local');assert.equal(direct.health.storage,'none');assert.equal(direct.status,200);assert.equal(direct.result.data.title,'Example Domain');
+  if(probeOnly){console.log('Real HTTPS GitHub -> HTTP loopback fetch passed',version.product,permission);return;}
+  const target=process.argv.includes('--public')?publicUrl:'http://127.0.0.1:5180';
+  await page.goto(target,{waitUntil:'domcontentloaded'});await page.getByRole('heading',{name:'创建你的资源空间',exact:true}).waitFor();await page.locator('#auth-username').fill('local_fetch_qa');await page.locator('#auth-password').fill('Test-only-pass-2026');await page.locator('#auth-confirm').fill('Test-only-pass-2026');await page.getByRole('button',{name:'注册并进入空间',exact:true}).click();await page.getByRole('button',{name:'连接本机抓取',exact:true}).waitFor();
+  await page.getByRole('button',{name:'添加链接',exact:true}).click();await page.locator('#bulk').fill('https://example.com/');await page.getByRole('button',{name:'保存并整理',exact:true}).click();await page.getByText('新增 1 条 · 重复跳过 0 条 · 无效 0 条').waitFor();await page.getByRole('button',{name:'关闭',exact:true}).click();
+  await new Promise(resolve=>setTimeout(resolve,2200));
+  const queued=await page.evaluate(async()=>({tasks:await(await fetch('/api/tasks')).json(),settings:await(await fetch('/api/settings')).json()}));assert.equal(queued.tasks.items[0].status,'queued');assert.equal(queued.tasks.items[0].attempts,0);assert.equal(queued.settings.service_url,local);
+  await page.getByRole('button',{name:'连接本机抓取',exact:true}).click();await page.getByText('本机抓取已连接 · 仅在这台电脑执行',{exact:false}).waitFor({timeout:30000});await page.getByRole('heading',{name:'Example Domain',exact:true}).waitFor({timeout:30000});
+  const saved=await page.evaluate(async()=>await(await fetch('/api/resources')).json());assert.equal(saved.items[0].status,'success');
+  // Service absence is a connection condition, not a failure of the saved webpage.
+  await page.getByRole('button',{name:'打开抓取设置',exact:true}).click();await page.locator('#fetch-service').fill('http://127.0.0.1:8788');await page.getByRole('button',{name:'保存设置',exact:true}).click();await page.getByRole('button',{name:'连接本机抓取',exact:true}).click();await page.getByText('本机服务未启动、已断开或浏览器未允许本地网络访问；任务继续排队',{exact:false}).waitFor();
+  await page.evaluate(async()=>fetch('/api/resources/batch',{method:'POST',body:JSON.stringify({urls:['https://example.com/offline-queued']})}));await new Promise(resolve=>setTimeout(resolve,2500));
+  const offline=await page.evaluate(async()=>await(await fetch('/api/tasks')).json());assert.equal(offline.items[0].status,'queued');assert.equal(offline.items[0].attempts,0);
+  await page.getByRole('button',{name:'打开抓取设置',exact:true}).click();await page.locator('#fetch-service').fill(local);await page.getByRole('button',{name:'保存设置',exact:true}).click();await page.getByRole('button',{name:'连接本机抓取',exact:true}).click();await page.getByText('本机抓取已连接 · 仅在这台电脑执行',{exact:false}).waitFor();
+  await page.screenshot({path:process.argv.includes('--public')?'logs/github-local-public.png':'logs/github-local-dev.png'});
+  assert.deepEqual(errors,[]);fs.writeFileSync('logs/github-local-verification.json',JSON.stringify({passed:true,page:target,browser:version.product,isolated_test_permission:permission,real_https_to_loopback:direct,checks:['public HTTPS to localhost HTTP','real example.com metadata','default loopback address','explicit connect button','queue retained before connection','unavailable local service does not consume task retries','service reconnect'],errors},null,2));console.log('GitHub frontend + local fetch QA passed',target,version.product);
+ }finally{await context.close();}
+})().catch(error=>{console.error(error);process.exitCode=1;});
