@@ -55,3 +55,12 @@
 .local-tools-dialog .browser-notice>div{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:900px){.local-tools-trigger{min-height:44px;padding:0 10px}.local-tools-dialog{padding:20px}.local-tools-dialog .button{white-space:normal}.local-tools-dialog .modal-heading{gap:12px}.local-tools-dialog .modal-heading>div{min-width:0}}
 @media(max-width:480px){.local-tools-trigger>span{display:none}.local-tools-trigger{width:44px;justify-content:center;padding:0}.local-tools-dialog{padding:16px}.local-tools-dialog .browser-notice>div{flex-direction:column}.local-tools-dialog .browser-notice .button{justify-content:center;min-height:44px}}
+
+.common-tag{display:inline-flex;align-items:stretch;max-width:100%;border:1px solid #e5ece7;border-radius:5px;background:#f4f7f5;overflow:hidden}
+.sidebar-tags .common-tag>button{border:0;border-radius:0;margin:0;background:transparent;min-width:0;overflow-wrap:anywhere}
+.sidebar-tags .common-tag>.tag-remove{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:24px;padding:0;color:#9b746a;border-left:1px solid #e5ece7}
+.sidebar-tags .common-tag>.tag-remove:hover{background:#fff0eb;color:#b33f32}
+.sidebar-tags .common-tag>.chosen{background:#e5f3ed;color:#128163}
+.tag-delete-name,.tag-delete-impact{font-size:13px;line-height:1.9;overflow-wrap:anywhere;white-space:pre-wrap}
+.tag-delete-impact{margin-top:12px;color:#71897b}
+@media(max-width:900px){.sidebar-tags .common-tag>button{min-height:36px}.sidebar-tags .common-tag>.tag-remove{width:36px}.tag-delete-dialog .modal-footer{flex-wrap:wrap}}

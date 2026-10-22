@@ -1,3 +1,4 @@
+import {tagPreview,deleteTag} from './tag-delete';
 import {resourceOrder} from './resource-sort';
 import {duplicateKey,duplicateIndex,duplicateDetail} from './duplicates';
 import {controlTask} from './task-control';
@@ -24,6 +25,7 @@ async function route(path:string,method:string,data:any,params:URLSearchParams,n
   if(path==='/settings')return {page_limit_mib:s.meta[0].page_limit_mib,service_url:serviceUrl(s),last_backup:s.meta[0].last_backup,backup_status:backupStatus(s)};
   if(path==='/resources'){const rows=selection(s,params),page=Math.max(1,Number(params.get('page'))||1),tasks=latestTasks(s);return {items:rows.slice((page-1)*50,page*50).map(r=>fetched(s,r,tasks)),page,page_size:50,total:rows.length};}
   if(/^\/resources\/\d+$/.test(path)){const r=live(s).find(x=>x.id===id);if(!r)throw Error('资源不存在');return fetched(s,r);}
+  if(path==='/tags/preview')return tagPreview(s,params.get('name'));
   if(path==='/stats'){const rows=live(s).filter(x=>!x.archived),tags=new Map<string,number>();for(const r of rows)for(const t of r.tags)tags.set(t,(tags.get(t)??0)+1);return {total:rows.length,inbox:rows.filter(x=>x.category_id===null).length,favorites:rows.filter(x=>x.favorite).length,repositories:rows.filter(x=>x.kind==='repository').length,active_tasks:s.tasks.filter(x=>!x.deleted&&['queued','running'].includes(x.status)).length,tags:[...tags].sort((a,b)=>b[1]-a[1]).slice(0,20).map(([name,count])=>({name,count}))};}
   if(path==='/libraries'||path==='/categories'){const table=path==='/libraries'?'libraries':'categories',field=path==='/libraries'?'library_id':'category_id',counts=new Map<number,number>();for(const r of live(s))if(!r.archived)counts.set(r[field],(counts.get(r[field])??0)+1);return ordered(s[table]).map(x=>({...x,count:counts.get(x.id)??0}));}
   if(path==='/shortcuts')return ordered(s.shortcuts).flatMap(sh=>{try{const t=target(s,sh),p=new URLSearchParams();for(const [k,v] of Object.entries(t))if(v!==null)p.set(k,String(v));return [{...sh,...t,count:selection(s,p).length}];}catch{return [];}});
@@ -48,6 +50,7 @@ async function route(path:string,method:string,data:any,params:URLSearchParams,n
  return write(name,(s,put,remove)=>{
   if(path!=='/import/json'&&path!=='/import/commit'&&path!=='/backup/mark')put('meta',{...s.meta[0],touched:true});
   if(path==='/settings'){if(!Number.isInteger(data.page_limit_mib)||data.page_limit_mib<1||data.page_limit_mib>10)throw Error('读取上限为 1–10 MiB');let service=data.service_url??s.meta[0].service_url;if(service){const url=new URL(service);if(url.protocol!=='https:'&&!(url.protocol==='http:'&&['localhost','127.0.0.1'].includes(url.hostname)))throw Error('公网抓取服务必须使用 HTTPS');if(url.username||url.password||url.search||url.hash||url.pathname!=='/')throw Error('请输入抓取服务的域名，不含路径、密码或参数');service=url.origin;}put('meta',{...s.meta[0],page_limit_mib:data.page_limit_mib,service_url:service});return {saved:true};}
+  if(path==='/tags/delete')return deleteTag(s,put,data);
   if(path==='/resources/bulk-edit')return bulkEdit(s,put,data);
   if(/^\/tasks\/\d+\/(pause|resume|cancel)$/.test(path))return controlTask(s,put,id,path.split('/')[3]);
   if(path==='/resources/batch'){if(!Array.isArray(data.urls)||data.urls.length>1000)throw Error('每批最多 1000 条');const dest=destination(s,data.library_id??ordered(s.libraries)[0]?.id??null,data.category_id??null);let created=0,duplicates=0;const errors:any[]=[],duplicate_details:any[]=[],index=duplicateIndex(s.resources);for(const raw of data.urls){try{const url=canonical(raw);const existing=index.get(duplicateKey(url));if(existing){duplicates++;if(duplicate_details.length<20)duplicate_details.push(duplicateDetail(url,existing));continue;}const rid=nextId(s.resources);put('resources',resource({url,...dest,manual_fields:dest.category_id?['library_id','category_id']:[]},rid));index.set(duplicateKey(url),s.resources.find(x=>x.id===rid)!);queue(s,put,rid);created++;}catch(error){errors.push({url:String(raw),message:(error as Error).message});}}return {created,duplicates,errors,duplicate_details};}
