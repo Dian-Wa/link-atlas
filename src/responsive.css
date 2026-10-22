@@ -74,3 +74,9 @@
 .tag-edit-hint,.tag-rename-error{font-size:11px;line-height:1.8;margin:8px 10px;overflow-wrap:anywhere;color:#7c9185}
 .tag-rename-error{color:#b34e3d}
 @media(max-width:900px){.tag-rename-form input{font-size:16px;width:110px}.sidebar-tags .tag-rename-form button{width:32px;min-height:36px}}
+
+/* Independent sidebar section controls; keep management actions outside. */
+.sidebar-section-toggle{display:inline-flex;align-items:center;gap:5px;min-width:0;padding:4px 0;text-align:left;color:inherit;font:inherit}
+.sidebar-section-toggle svg{flex-shrink:0}.sidebar-section-toggle span{overflow-wrap:anywhere}
+.sidebar-section-toggle:focus-visible{outline:2px solid #5caa90;outline-offset:3px;border-radius:3px}
+@media(max-width:900px){.sidebar-section-toggle{min-height:44px}}
