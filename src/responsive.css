@@ -64,3 +64,6 @@
 .tag-delete-name,.tag-delete-impact{font-size:13px;line-height:1.9;overflow-wrap:anywhere;white-space:pre-wrap}
 .tag-delete-impact{margin-top:12px;color:#71897b}
 @media(max-width:900px){.sidebar-tags .common-tag>button{min-height:36px}.sidebar-tags .common-tag>.tag-remove{width:36px}.tag-delete-dialog .modal-footer{flex-wrap:wrap}}
+
+.common-tags-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.common-tags-heading .text-button{padding:4px 6px;flex-shrink:0}
+@media(max-width:900px){.common-tags-heading .text-button{min-height:44px;min-width:44px;justify-content:center}}
