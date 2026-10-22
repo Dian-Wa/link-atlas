@@ -1,4 +1,4 @@
-import {tagPreview,deleteTag} from './tag-delete';
+import {tagPreview,deleteTag,renameTag} from './tag-delete';
 import {resourceOrder} from './resource-sort';
 import {duplicateKey,duplicateIndex,duplicateDetail} from './duplicates';
 import {controlTask} from './task-control';
@@ -50,6 +50,7 @@ async function route(path:string,method:string,data:any,params:URLSearchParams,n
  return write(name,(s,put,remove)=>{
   if(path!=='/import/json'&&path!=='/import/commit'&&path!=='/backup/mark')put('meta',{...s.meta[0],touched:true});
   if(path==='/settings'){if(!Number.isInteger(data.page_limit_mib)||data.page_limit_mib<1||data.page_limit_mib>10)throw Error('读取上限为 1–10 MiB');let service=data.service_url??s.meta[0].service_url;if(service){const url=new URL(service);if(url.protocol!=='https:'&&!(url.protocol==='http:'&&['localhost','127.0.0.1'].includes(url.hostname)))throw Error('公网抓取服务必须使用 HTTPS');if(url.username||url.password||url.search||url.hash||url.pathname!=='/')throw Error('请输入抓取服务的域名，不含路径、密码或参数');service=url.origin;}put('meta',{...s.meta[0],page_limit_mib:data.page_limit_mib,service_url:service});return {saved:true};}
+  if(path==='/tags/rename')return renameTag(s,put,data);
   if(path==='/tags/delete')return deleteTag(s,put,data);
   if(path==='/resources/bulk-edit')return bulkEdit(s,put,data);
   if(/^\/tasks\/\d+\/(pause|resume|cancel)$/.test(path))return controlTask(s,put,id,path.split('/')[3]);

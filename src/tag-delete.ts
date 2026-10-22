@@ -16,3 +16,18 @@ export function deleteTag(s:State,put:(table:any,row:Row)=>void,data:any){
  for(const r of s.resources.filter(r=>has(r,p.name)))put('resources',{...r,tags:r.tags.filter((t:string)=>t!==p.name),updated_at:stamp,manual_fields:[...new Set([...(r.manual_fields??[]),'tags'])]});
  return {deleted:true,name:p.name,affected:p.active+p.archived};
 }
+
+export function renameTag(s:State,put:(table:any,row:Row)=>void,data:any){
+ const p=tagPreview(s,data.name);
+ if(data.confirmed!==true)throw Error('请确认重命名标签');
+ if(data.expected_revision!==p.revision)throw Error('资料已有变化，请取消后重新编辑标签');
+ if(!p.exists)throw Error('标签已不存在，请刷新列表');
+ if(p.trash)throw Error('该标签仍被 '+p.trash+' 条回收记录引用，暂不能重命名；请先处理相关回收记录');
+ if(typeof data.new_name!=='string'||!data.new_name.trim()||data.new_name.trim().length>60)throw Error('标签名称须为 1–60 字，不能全为空格');
+ const name=data.new_name.trim();
+ if(name===p.name)return {renamed:false,name,previous:p.name};
+ if(s.resources.some(r=>has(r,name))||s.trash.some(t=>has(t.data?.row,name)))throw Error('已存在同名标签，请使用其他名称；不会自动合并标签');
+ const stamp=now();
+ for(const r of s.resources.filter(r=>has(r,p.name)))put('resources',{...r,tags:r.tags.map((t:string)=>t===p.name?name:t),updated_at:stamp,manual_fields:[...new Set([...(r.manual_fields??[]),'tags'])]});
+ return {renamed:true,name,previous:p.name,affected:p.active+p.archived};
+}
